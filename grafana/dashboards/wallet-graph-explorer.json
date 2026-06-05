@@ -1,0 +1,294 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "edges": {
+          "arrows": false
+        },
+        "nodes": {
+          "mainStatUnit": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "format": 1,
+          "query": "WITH top_edges AS (SELECT wallet_a, wallet_b, common_tokens, similarity_score FROM graph.wallet_similarity_edges FINAL ORDER BY similarity_score DESC LIMIT 120), wallets AS (SELECT wallet_a AS wallet FROM top_edges UNION DISTINCT SELECT wallet_b AS wallet FROM top_edges), degrees AS (SELECT wallet, count() AS degree, round(max(score), 2) AS best_score FROM (SELECT wallet_a AS wallet, similarity_score AS score FROM top_edges UNION ALL SELECT wallet_b AS wallet, similarity_score AS score FROM top_edges) GROUP BY wallet) SELECT wallet AS id, concat(substring(wallet, 1, 6), '...', substring(wallet, -4)) AS title, concat('degree ', toString(degree)) AS subTitle, best_score AS mainStat FROM wallets LEFT JOIN degrees USING (wallet) ORDER BY best_score DESC",
+          "refId": "nodes"
+        },
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "format": 1,
+          "query": "SELECT concat(wallet_a, '-', wallet_b) AS id, wallet_a AS source, wallet_b AS target, round(similarity_score, 2) AS mainStat, common_tokens AS secondaryStat, round(jaccard_tokens, 3) AS detail__jaccard, round(time_correlation, 3) AS detail__time_corr FROM graph.wallet_similarity_edges FINAL ORDER BY similarity_score DESC LIMIT 120",
+          "refId": "edges"
+        }
+      ],
+      "title": "Wallet Similarity Network",
+      "type": "nodeGraph"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "id": 2,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "format": 1,
+          "query": "SELECT wallet_a, wallet_b, common_tokens, round(jaccard_tokens, 3) AS jaccard_tokens, round(time_correlation, 3) AS time_correlation, round(similarity_score, 2) AS similarity_score, calculated_at FROM graph.wallet_similarity_edges FINAL ORDER BY similarity_score DESC LIMIT 30",
+          "refId": "A"
+        }
+      ],
+      "title": "Top Similarity Edges",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "id": 3,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "format": 1,
+          "query": "WITH (SELECT wallet_a FROM graph.wallet_similarity_edges FINAL ORDER BY similarity_score DESC LIMIT 1) AS seed_wallet SELECT seed_wallet, if(wallet_a = seed_wallet, wallet_b, wallet_a) AS neighbor_wallet, common_tokens, round(jaccard_tokens, 3) AS jaccard_tokens, round(time_correlation, 3) AS time_correlation, round(similarity_score, 2) AS similarity_score FROM graph.wallet_similarity_edges FINAL WHERE wallet_a = seed_wallet OR wallet_b = seed_wallet ORDER BY similarity_score DESC LIMIT 30",
+          "refId": "A"
+        }
+      ],
+      "title": "Ego Graph For Strongest Wallet",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "id": 4,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "format": 1,
+          "query": "WITH (SELECT wallet_a FROM graph.wallet_similarity_edges FINAL ORDER BY similarity_score DESC LIMIT 1) AS a, (SELECT wallet_b FROM graph.wallet_similarity_edges FINAL ORDER BY similarity_score DESC LIMIT 1) AS b SELECT e1.token_address, e1.volume_usd AS wallet_a_volume_usd, e2.volume_usd AS wallet_b_volume_usd, e1.tx_count AS wallet_a_tx_count, e2.tx_count AS wallet_b_tx_count, e1.last_seen AS wallet_a_last_seen, e2.last_seen AS wallet_b_last_seen FROM graph.v_wallet_token_edges AS e1 JOIN graph.v_wallet_token_edges AS e2 USING (token_address) WHERE e1.wallet_address = a AND e2.wallet_address = b ORDER BY least(e1.volume_usd, e2.volume_usd) DESC LIMIT 30",
+          "refId": "A"
+        }
+      ],
+      "title": "Why The Top Wallet Pair Is Similar",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "id": 5,
+      "options": {
+        "edges": {
+          "arrows": true
+        },
+        "nodes": {
+          "mainStatUnit": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "format": 1,
+          "query": "WITH edges AS (SELECT from_token, to_token, edge_weight, support_wallets FROM graph.token_transition_edges FINAL ORDER BY edge_weight DESC LIMIT 80), tokens AS (SELECT from_token AS token FROM edges UNION DISTINCT SELECT to_token AS token FROM edges), degrees AS (SELECT token, count() AS degree, round(max(weight), 2) AS best_weight FROM (SELECT from_token AS token, edge_weight AS weight FROM edges UNION ALL SELECT to_token AS token, edge_weight AS weight FROM edges) GROUP BY token) SELECT token AS id, dictGet('mart.tokens_dict', 'symbol', token) AS title, concat('degree ', toString(degree)) AS subTitle, best_weight AS mainStat FROM tokens LEFT JOIN degrees USING (token) ORDER BY best_weight DESC",
+          "refId": "nodes"
+        },
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "format": 1,
+          "query": "SELECT concat(from_token, '-', to_token) AS id, from_token AS source, to_token AS target, round(edge_weight, 2) AS mainStat, transition_count AS secondaryStat, round(avg_return_proxy, 3) AS detail__return_proxy, round(confidence, 3) AS detail__confidence, support_wallets AS detail__support_wallets FROM graph.token_transition_edges FINAL ORDER BY edge_weight DESC LIMIT 80",
+          "refId": "edges"
+        }
+      ],
+      "title": "Token Transition Network",
+      "type": "nodeGraph"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 44
+      },
+      "id": 6,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "format": 1,
+          "query": "SELECT tree_rank, dictGet('mart.tokens_dict', 'symbol', from_token) AS from_symbol, dictGet('mart.tokens_dict', 'symbol', to_token) AS to_symbol, support_wallets, transition_count, round(edge_weight, 2) AS edge_weight FROM graph.token_spanning_tree_edges FINAL ORDER BY tree_rank LIMIT 30",
+          "refId": "A"
+        }
+      ],
+      "title": "Maximum Spanning Tree Edges",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 44
+      },
+      "id": 7,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "format": 1,
+          "query": "SELECT route_rank, arrayStringConcat(path_symbols, ' -> ') AS route, hops, round(expected_return_proxy, 3) AS expected_return_proxy, round(confidence, 3) AS confidence, round(route_weight, 2) AS route_weight, support_wallets FROM graph.token_route_recommendations FINAL ORDER BY route_rank LIMIT 30",
+          "refId": "A"
+        }
+      ],
+      "title": "Top Token Routes",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "clickhouse",
+    "smart-wallets",
+    "graph"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Wallet Graph Explorer",
+  "uid": "wallet-graph-explorer",
+  "version": 2,
+  "weekStart": ""
+}
