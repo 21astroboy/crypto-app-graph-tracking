@@ -1,0 +1,186 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "format": 0,
+          "query": "SELECT bucket_time AS time, sum(net_flow_usd) AS smart_money_net_flow FROM mart.token_smart_money_flow_5m WHERE bucket_time >= $__fromTime AND bucket_time <= $__toTime GROUP BY time ORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Smart Money Net Flow",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "format": 1,
+          "query": "SELECT wallet_address, round(smart_score, 2) AS smart_score, round(roi_30d, 3) AS roi_30d, realized_pnl_usd, round(graph_score, 2) AS graph_score FROM mart.wallet_ratings_latest FINAL ORDER BY smart_score DESC LIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Top Smart Wallets",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "format": 0,
+          "query": "SELECT activity_date AS time, sum(volume_usd) AS volume_usd FROM mart.v_wallet_daily_activity WHERE activity_date >= toDate($__fromTime) AND activity_date <= toDate($__toTime) GROUP BY time ORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Daily Wallet Volume",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "format": 1,
+          "query": "SELECT token_address, sum(net_flow_usd) AS net_flow_usd, sum(smart_buy_usd) AS buy_usd, sum(smart_sell_usd) AS sell_usd, sum(tx_count) AS tx_count FROM mart.token_smart_money_flow_5m GROUP BY token_address ORDER BY net_flow_usd DESC LIMIT 15",
+          "refId": "A"
+        }
+      ],
+      "title": "Token Smart Money Flow",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "clickhouse",
+    "smart-wallets"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-21d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Smart Wallet Overview",
+  "uid": "smart-wallet-overview",
+  "version": 1,
+  "weekStart": ""
+}
