@@ -1,0 +1,239 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: ch-wallet-clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: crypto
+      CLICKHOUSE_USER: student
+      CLICKHOUSE_PASSWORD: student
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  postgres:
+    image: postgres:16
+    container_name: ch-wallet-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: wallet_meta
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U student -d wallet_meta"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: ch-wallet-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_DEFAULT_THEME: light
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+  demo-ingest:
+    build:
+      context: ./jobs
+    container_name: ch-wallet-demo-ingest
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: crypto
+      CLICKHOUSE_USER: student
+      CLICKHOUSE_PASSWORD: student
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: wallet_meta
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+      DEMO_WALLETS: 250
+      DEMO_DAYS: 21
+      DEMO_EVENTS_PER_DAY: 900
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    profiles:
+      - jobs
+
+  real-ingest:
+    build:
+      context: ./jobs
+    container_name: ch-wallet-real-ingest
+    command: ["python", "real_ingest.py"]
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: crypto
+      CLICKHOUSE_USER: student
+      CLICKHOUSE_PASSWORD: student
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: wallet_meta
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+      ETHERSCAN_API_KEY: ${ETHERSCAN_API_KEY:-}
+      ETHERSCAN_CHAIN_ID: ${ETHERSCAN_CHAIN_ID:-1}
+      REAL_WALLETS: ${REAL_WALLETS:-}
+      REAL_MAX_WALLETS: ${REAL_MAX_WALLETS:-10}
+      REAL_MAX_TX_PER_WALLET: ${REAL_MAX_TX_PER_WALLET:-50}
+      REAL_START_BLOCK: ${REAL_START_BLOCK:-0}
+      REAL_END_BLOCK: ${REAL_END_BLOCK:-99999999}
+      REAL_BATCH_SIZE: ${REAL_BATCH_SIZE:-500}
+      REAL_PRICE_MAX_TOKENS: ${REAL_PRICE_MAX_TOKENS:-5}
+      REAL_PRICE_BATCH_SIZE: ${REAL_PRICE_BATCH_SIZE:-5}
+      REAL_SLEEP_SECONDS: ${REAL_SLEEP_SECONDS:-1.0}
+      REAL_ENABLE_SWAPS: ${REAL_ENABLE_SWAPS:-true}
+      REAL_MAX_RECEIPTS_PER_WALLET: ${REAL_MAX_RECEIPTS_PER_WALLET:-20}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    profiles:
+      - jobs
+
+  wallet-discovery:
+    build:
+      context: ./jobs
+    container_name: ch-wallet-discovery
+    command: ["python", "wallet_discovery.py"]
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: crypto
+      CLICKHOUSE_USER: student
+      CLICKHOUSE_PASSWORD: student
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: wallet_meta
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+      DISCOVERY_LOOKBACK_DAYS: ${DISCOVERY_LOOKBACK_DAYS:-30}
+      DISCOVERY_TOP_N: ${DISCOVERY_TOP_N:-50}
+      DISCOVERY_MIN_TX: ${DISCOVERY_MIN_TX:-5}
+      DISCOVERY_MIN_TOKENS: ${DISCOVERY_MIN_TOKENS:-2}
+      DISCOVERY_SOURCE: ${DISCOVERY_SOURCE:-local_raw_score}
+      DISCOVERY_EVENT_SOURCE: ${DISCOVERY_EVENT_SOURCE:-all}
+      DISCOVERY_WATCHLIST_NAME: ${DISCOVERY_WATCHLIST_NAME:-Auto discovery}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    profiles:
+      - jobs
+
+  price-ingest:
+    build:
+      context: ./jobs
+    container_name: ch-wallet-price-ingest
+    command: ["python", "price_ingest.py"]
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: crypto
+      CLICKHOUSE_USER: student
+      CLICKHOUSE_PASSWORD: student
+      COINGECKO_BASE_URL: ${COINGECKO_BASE_URL:-https://api.coingecko.com/api/v3}
+      PRICE_LOOKBACK_DAYS: ${PRICE_LOOKBACK_DAYS:-30}
+      PRICE_MAX_TOKENS: ${PRICE_MAX_TOKENS:-20}
+      PRICE_BATCH_SIZE: ${PRICE_BATCH_SIZE:-5}
+      PRICE_SLEEP_SECONDS: ${PRICE_SLEEP_SECONDS:-2.0}
+      PRICE_REFRESH_HOURS: ${PRICE_REFRESH_HOURS:-12}
+      PRICE_SOURCE: ${PRICE_SOURCE:-coingecko-price-job}
+      PRICE_EVENT_SOURCE: ${PRICE_EVENT_SOURCE:-all}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    profiles:
+      - jobs
+
+  graph-similarity:
+    build:
+      context: ./jobs
+    container_name: ch-wallet-graph-similarity
+    command: ["python", "graph_similarity.py"]
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: crypto
+      CLICKHOUSE_USER: student
+      CLICKHOUSE_PASSWORD: student
+      GRAPH_MAX_WALLETS: ${GRAPH_MAX_WALLETS:-300}
+      GRAPH_MAX_TOKENS_PER_WALLET: ${GRAPH_MAX_TOKENS_PER_WALLET:-60}
+      GRAPH_MIN_COMMON_TOKENS: ${GRAPH_MIN_COMMON_TOKENS:-2}
+      GRAPH_TOP_EDGES: ${GRAPH_TOP_EDGES:-1000}
+      GRAPH_LOOKBACK_DAYS: ${GRAPH_LOOKBACK_DAYS:-30}
+      GRAPH_DROP_NOISY_TOKENS: ${GRAPH_DROP_NOISY_TOKENS:-false}
+      GRAPH_TRUNCATE_BEFORE_INSERT: ${GRAPH_TRUNCATE_BEFORE_INSERT:-true}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    profiles:
+      - jobs
+
+  token-paths:
+    build:
+      context: ./jobs
+    container_name: ch-wallet-token-paths
+    command: ["python", "token_paths.py"]
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: crypto
+      CLICKHOUSE_USER: student
+      CLICKHOUSE_PASSWORD: student
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: wallet_meta
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+      TOKEN_PATH_LOOKBACK_DAYS: ${TOKEN_PATH_LOOKBACK_DAYS:-30}
+      TOKEN_PATH_MAX_EVENTS: ${TOKEN_PATH_MAX_EVENTS:-50000}
+      TOKEN_PATH_MIN_TRANSITIONS: ${TOKEN_PATH_MIN_TRANSITIONS:-3}
+      TOKEN_PATH_MIN_WALLETS: ${TOKEN_PATH_MIN_WALLETS:-2}
+      TOKEN_PATH_TOP_EDGES: ${TOKEN_PATH_TOP_EDGES:-500}
+      TOKEN_PATH_TOP_ROUTES: ${TOKEN_PATH_TOP_ROUTES:-50}
+      TOKEN_PATH_MAX_HOPS: ${TOKEN_PATH_MAX_HOPS:-4}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    profiles:
+      - jobs
+
+volumes:
+  clickhouse_data:
+  postgres_data:
+  grafana_data:
