@@ -23,6 +23,10 @@ real-ingest: ## Load a small real ERC-20 transfer batch through Etherscan
 discover: ## Rank wallet candidates from raw events and refresh the watchlist
 	docker compose --profile jobs up --build wallet-discovery
 
+.PHONY: seed-wallets
+seed-wallets: ## Discover real wallet seeds from Etherscan transfer counterparties
+	docker compose --profile jobs up --build wallet-seed-discovery
+
 .PHONY: price-ingest
 price-ingest: ## Refresh hourly token prices for recently seen tokens
 	docker compose --profile jobs up --build price-ingest

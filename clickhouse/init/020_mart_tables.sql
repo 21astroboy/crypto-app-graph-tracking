@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS mart.wallet_token_balances
 (
     wallet_address String,
     token_address String,
-    balance_token Decimal(38, 18),
+    balance_token Decimal(76, 18),
     net_flow_usd Decimal(18, 4),
     buy_usd Decimal(18, 4),
     sell_usd Decimal(18, 4),
@@ -23,7 +23,7 @@ SELECT
             side = 'sell', -amount_token,
             event_type = 'add_liquidity', amount_token,
             event_type = 'remove_liquidity', -amount_token,
-            toDecimal128(0, 18)
+            toDecimal256(0, 18)
         )
     ) AS balance_token,
     sum(if(side = 'buy', amount_usd, -amount_usd)) AS net_flow_usd,
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS mart.first_wallet_buys
     token_address String,
     first_buy_time AggregateFunction(min, DateTime),
     first_buy_amount_usd AggregateFunction(argMin, Decimal(18, 4), DateTime),
-    first_buy_amount_token AggregateFunction(argMin, Decimal(38, 18), DateTime)
+    first_buy_amount_token AggregateFunction(argMin, Decimal(76, 18), DateTime)
 )
 ENGINE = AggregatingMergeTree
 ORDER BY (token_address, wallet_address);

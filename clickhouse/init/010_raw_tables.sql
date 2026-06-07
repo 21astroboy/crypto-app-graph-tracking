@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS raw.dex_transactions
     pool_address String,
     event_type LowCardinality(String),
     side LowCardinality(String),
-    amount_token Decimal(38, 18),
+    amount_token Decimal(76, 18),
     amount_usd Decimal(18, 4),
     fee_usd Decimal(18, 4),
     source LowCardinality(String) DEFAULT 'demo',

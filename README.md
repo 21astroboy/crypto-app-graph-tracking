@@ -60,6 +60,21 @@ make real-ingest
 который получил. Это проходит через те же MV и витрины. Поддержку 1inch/0x/Curve
 можно добавить следующим шагом.
 
+Для большого локального real-run сначала можно собрать watchlist из реальных
+counterparties seed-кошельков:
+
+```bash
+make seed-wallets
+make real-ingest
+```
+
+В таком режиме удобно ставить `REAL_WALLETS=` и `REAL_MAX_WALLETS=200`, чтобы
+`real-ingest` взял свежие адреса из PostgreSQL `watchlist_wallets`. Для ноутбука
+лучше начинать с `REAL_ENABLE_SWAPS=false`: это оставляет ERC-20 transfers, но
+не делает сотни/тысячи receipt-запросов. Raw-таблица хранит 180-дневное окно по
+TTL, поэтому старые события могут быть загружены job-ом, но не остаться в
+локальном рабочем слое.
+
 ## Price ingest
 
 `price-ingest` отдельно обновляет hourly цены для токенов, которые недавно

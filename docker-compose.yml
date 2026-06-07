@@ -155,6 +155,31 @@ services:
     profiles:
       - jobs
 
+  wallet-seed-discovery:
+    build:
+      context: ./jobs
+    container_name: ch-wallet-seed-discovery
+    command: ["python", "wallet_seed_discovery.py"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: wallet_meta
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+      ETHERSCAN_API_KEY: ${ETHERSCAN_API_KEY:-}
+      ETHERSCAN_CHAIN_ID: ${ETHERSCAN_CHAIN_ID:-1}
+      REAL_WALLETS: ${REAL_WALLETS:-}
+      SEED_WALLETS: ${SEED_WALLETS:-}
+      SEED_TARGET_WALLETS: ${SEED_TARGET_WALLETS:-200}
+      SEED_MAX_TRANSFERS_PER_SEED: ${SEED_MAX_TRANSFERS_PER_SEED:-1000}
+      SEED_SLEEP_SECONDS: ${SEED_SLEEP_SECONDS:-1.0}
+      SEED_WATCHLIST_NAME: ${SEED_WATCHLIST_NAME:-Etherscan counterparty seeds}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - jobs
+
   price-ingest:
     build:
       context: ./jobs
