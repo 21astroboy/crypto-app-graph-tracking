@@ -242,7 +242,7 @@ def decimal_amount(value: str, decimals: str) -> Decimal:
 
 
 def hex_to_int(value: str) -> int:
-    if not value:
+    if not value or value.lower() == "0x":
         return 0
     return int(value, 16)
 
