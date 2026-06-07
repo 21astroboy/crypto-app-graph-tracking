@@ -46,6 +46,8 @@ make demo-flow
 - текущий hourly price snapshot через CoinGecko simple token price;
 - checkpoint-и по каждому кошельку в PostgreSQL;
 - маленькие лимиты `REAL_MAX_WALLETS`, `REAL_MAX_TX_PER_WALLET`, `REAL_BATCH_SIZE`;
+- параллельная загрузка кошельков через `REAL_WORKERS`;
+- потоковые inserts в ClickHouse по `REAL_BATCH_SIZE`, без ожидания конца всех API-запросов;
 - без `pandas` и больших in-memory датафреймов.
 
 ```bash
@@ -68,12 +70,34 @@ make seed-wallets
 make real-ingest
 ```
 
-В таком режиме удобно ставить `REAL_WALLETS=` и `REAL_MAX_WALLETS=200`, чтобы
+После первого запуска, когда образы уже собраны и `make up` держит сервисы
+живыми, быстрее использовать:
+
+```bash
+make seed-wallets-fast
+make real-ingest-fast
+```
+
+В таком режиме удобно ставить `REAL_WALLETS=` и `REAL_MAX_WALLETS=200..500`, чтобы
 `real-ingest` взял свежие адреса из PostgreSQL `watchlist_wallets`. Для ноутбука
 лучше начинать с `REAL_ENABLE_SWAPS=false`: это оставляет ERC-20 transfers, но
-не делает сотни/тысячи receipt-запросов. Raw-таблица хранит 180-дневное окно по
-TTL, поэтому старые события могут быть загружены job-ом, но не остаться в
-локальном рабочем слое.
+не делает сотни/тысячи receipt-запросов. Для ускорения большого backfill можно
+также поставить `REAL_ENABLE_PRICE_LOOKUP=false` и догружать цены отдельным
+`make price-ingest`.
+
+Пример быстрого профиля:
+
+```env
+REAL_MAX_WALLETS=500
+REAL_MAX_TX_PER_WALLET=100
+REAL_BATCH_SIZE=1000
+REAL_WORKERS=5
+REAL_ENABLE_PRICE_LOOKUP=false
+REAL_ENABLE_SWAPS=false
+```
+
+Raw-таблица хранит 180-дневное окно по TTL, поэтому старые события могут быть
+загружены job-ом, но не остаться в локальном рабочем слое.
 
 ## Price ingest
 

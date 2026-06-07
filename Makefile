@@ -19,6 +19,10 @@ ingest: ## Load deterministic demo data
 real-ingest: ## Load a small real ERC-20 transfer batch through Etherscan
 	docker compose --profile jobs up --build real-ingest
 
+.PHONY: real-ingest-fast
+real-ingest-fast: ## Run real ingest without rebuilding/recreating database services
+	docker compose run --rm --no-deps real-ingest
+
 .PHONY: discover
 discover: ## Rank wallet candidates from raw events and refresh the watchlist
 	docker compose --profile jobs up --build wallet-discovery
@@ -26,6 +30,10 @@ discover: ## Rank wallet candidates from raw events and refresh the watchlist
 .PHONY: seed-wallets
 seed-wallets: ## Discover real wallet seeds from Etherscan transfer counterparties
 	docker compose --profile jobs up --build wallet-seed-discovery
+
+.PHONY: seed-wallets-fast
+seed-wallets-fast: ## Run wallet seed discovery without rebuilding/recreating database services
+	docker compose run --rm --no-deps wallet-seed-discovery
 
 .PHONY: price-ingest
 price-ingest: ## Refresh hourly token prices for recently seen tokens

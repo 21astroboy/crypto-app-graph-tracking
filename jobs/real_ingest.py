@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from decimal import Decimal, getcontext
 from typing import Any
@@ -10,7 +11,7 @@ import psycopg
 import requests
 
 
-getcontext().prec = 60
+getcontext().prec = 90
 
 
 def env(name: str, default: str) -> str:
@@ -42,8 +43,11 @@ REAL_START_BLOCK = int(env("REAL_START_BLOCK", "0"))
 REAL_END_BLOCK = int(env("REAL_END_BLOCK", "99999999"))
 REAL_SLEEP_SECONDS = float(env("REAL_SLEEP_SECONDS", "0.25"))
 REAL_BATCH_SIZE = int(env("REAL_BATCH_SIZE", "1000"))
+REAL_WORKERS = int(env("REAL_WORKERS", "1"))
+REAL_HTTP_RETRIES = int(env("REAL_HTTP_RETRIES", "3"))
 REAL_PRICE_MAX_TOKENS = int(env("REAL_PRICE_MAX_TOKENS", "50"))
 REAL_PRICE_BATCH_SIZE = int(env("REAL_PRICE_BATCH_SIZE", "10"))
+REAL_ENABLE_PRICE_LOOKUP = env("REAL_ENABLE_PRICE_LOOKUP", "true").lower() in {"1", "true", "yes", "y"}
 REAL_ENABLE_SWAPS = env("REAL_ENABLE_SWAPS", "true").lower() in {"1", "true", "yes", "y"}
 REAL_MAX_RECEIPTS_PER_WALLET = int(env("REAL_MAX_RECEIPTS_PER_WALLET", "20"))
 RUN_ID = env("RUN_ID", f"real-{uuid.uuid4().hex[:12]}")
@@ -74,9 +78,23 @@ def ch_client():
 
 
 def request_json(url: str, params: dict[str, Any], timeout: int = 30) -> Any:
-    response = requests.get(url, params=params, timeout=timeout)
-    response.raise_for_status()
-    return response.json()
+    last_error: Exception | None = None
+    for attempt in range(max(1, REAL_HTTP_RETRIES)):
+        try:
+            response = requests.get(url, params=params, timeout=timeout)
+            response.raise_for_status()
+            payload = response.json()
+            message = str(payload.get("message", "")).lower() if isinstance(payload, dict) else ""
+            result = str(payload.get("result", "")).lower() if isinstance(payload, dict) else ""
+            if "rate limit" in message or "rate limit" in result:
+                raise RuntimeError(f"rate limited: {payload.get('message')} / {payload.get('result')}")
+            return payload
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 >= max(1, REAL_HTTP_RETRIES):
+                break
+            time.sleep(REAL_SLEEP_SECONDS * (attempt + 1))
+    raise last_error or RuntimeError("request failed")
 
 
 def ensure_api_key() -> None:
@@ -582,6 +600,24 @@ def insert_prices(ch, prices: dict[str, float]) -> None:
     )
 
 
+def fetch_wallet_transfer_batch(wallet: str) -> tuple[str, int, list[dict[str, Any]], int | None]:
+    start_block = get_checkpoint(wallet)
+    transfers = fetch_erc20_transfers(wallet, start_block)
+    max_block = max((int(tx.get("blockNumber") or 0) for tx in transfers), default=None)
+    if REAL_SLEEP_SECONDS > 0:
+        time.sleep(REAL_SLEEP_SECONDS)
+    return wallet, start_block, transfers, max_block
+
+
+def flush_rows(ch, rows: list[tuple]) -> int:
+    if not rows:
+        return 0
+    insert_rows(ch, rows)
+    inserted = len(rows)
+    rows.clear()
+    return inserted
+
+
 def main() -> None:
     ensure_api_key()
     started_at = datetime.now(timezone.utc)
@@ -595,33 +631,68 @@ def main() -> None:
         if not wallets:
             raise SystemExit("No wallets configured. Set REAL_WALLETS or load raw.wallet_watchlist.")
 
-        all_transfers: list[tuple[str, list[dict[str, Any]]]] = []
-        tokens: set[str] = set()
-        for wallet in wallets:
-            start_block = get_checkpoint(wallet)
-            transfers = fetch_erc20_transfers(wallet, start_block)
-            print(f"{wallet}: fetched {len(transfers)} transfers from block {start_block}")
-            if transfers:
-                all_transfers.append((wallet, transfers))
-                tokens.update(str(t.get("contractAddress", "")).lower() for t in transfers)
-                set_checkpoint(wallet, max(int(t.get("blockNumber") or 0) for t in transfers))
-            time.sleep(REAL_SLEEP_SECONDS)
+        workers = max(1, REAL_WORKERS)
+        print(
+            f"Starting real ingest: wallets={len(wallets)}, max_tx_per_wallet={REAL_MAX_TX_PER_WALLET}, "
+            f"workers={workers}, price_lookup={REAL_ENABLE_PRICE_LOOKUP}, swaps={REAL_ENABLE_SWAPS}",
+            flush=True,
+        )
 
-        flat = [tx for _wallet, transfers in all_transfers for tx in transfers]
-        upsert_token_metadata(flat)
-        prices = fetch_prices(tokens)
+        all_transfers_for_swaps: list[tuple[str, list[dict[str, Any]]]] = []
+        metadata_buffer: list[dict[str, Any]] = []
+        tokens: set[str] = set()
+        prices: dict[str, float] = {}
+        loaded_at = datetime.now(timezone.utc)
+        rows: list[tuple] = []
+        completed_wallets = 0
+        transfer_rows_seen = 0
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(fetch_wallet_transfer_batch, wallet): wallet for wallet in wallets}
+            for future in as_completed(futures):
+                wallet = futures[future]
+                try:
+                    wallet, start_block, transfers, max_block = future.result()
+                except Exception as exc:
+                    print(f"{wallet}: failed to fetch transfers: {exc}", flush=True)
+                    continue
+
+                completed_wallets += 1
+                transfer_rows_seen += len(transfers)
+                print(
+                    f"{wallet}: fetched {len(transfers)} transfers from block {start_block} "
+                    f"({completed_wallets}/{len(wallets)})",
+                    flush=True,
+                )
+                if not transfers:
+                    continue
+
+                metadata_buffer.extend(transfers)
+                if REAL_ENABLE_SWAPS:
+                    all_transfers_for_swaps.append((wallet, transfers))
+                tokens.update(str(t.get("contractAddress", "")).lower() for t in transfers)
+                if max_block is not None:
+                    set_checkpoint(wallet, max_block)
+
+                for tx in transfers:
+                    rows.append(transfer_to_row(tx, wallet, prices, loaded_at))
+                    if len(rows) >= REAL_BATCH_SIZE:
+                        rows_inserted += flush_rows(ch, rows)
+                        print(f"Inserted {rows_inserted} raw rows so far.", flush=True)
+
+                if len(metadata_buffer) >= REAL_BATCH_SIZE:
+                    upsert_token_metadata(metadata_buffer)
+                    metadata_buffer.clear()
+
+        upsert_token_metadata(metadata_buffer)
+        rows_inserted += flush_rows(ch, rows)
+
+        if REAL_ENABLE_PRICE_LOOKUP:
+            prices = fetch_prices(tokens)
+        else:
+            prices = {}
         tokens_priced = len(prices)
         insert_prices(ch, prices)
-
-        loaded_at = datetime.now(timezone.utc)
-        rows = []
-        for wallet, transfers in all_transfers:
-            for tx in transfers:
-                rows.append(transfer_to_row(tx, wallet, prices, loaded_at))
-                rows_inserted += 1
-                if len(rows) >= REAL_BATCH_SIZE:
-                    insert_rows(ch, rows)
-                    rows.clear()
 
         if REAL_ENABLE_SWAPS:
             swap_rows, _swap_tokens, swap_prices = fetch_swap_rows(wallets, prices, loaded_at)
@@ -629,18 +700,17 @@ def main() -> None:
             tokens_priced = len(prices)
             for row in swap_rows:
                 rows.append(row)
-                rows_inserted += 1
                 if len(rows) >= REAL_BATCH_SIZE:
-                    insert_rows(ch, rows)
-                    rows.clear()
-        insert_rows(ch, rows)
+                    rows_inserted += flush_rows(ch, rows)
+                    print(f"Inserted {rows_inserted} raw rows so far.", flush=True)
+        rows_inserted += flush_rows(ch, rows)
 
         ch.command("SYSTEM RELOAD DICTIONARY mart.tokens_dict")
         ch.command("SYSTEM RELOAD DICTIONARY mart.prices_dict")
         insert_ingest_run(ch, "etherscan_real", started_at, "success", wallets_count, rows_inserted, tokens_priced)
         print(
             f"Inserted real ingest data for {len(wallets)} wallets, "
-            f"{len(flat)} transfers, {len(prices)} priced tokens, {rows_inserted} raw rows."
+            f"{transfer_rows_seen} transfers, {len(prices)} priced tokens, {rows_inserted} raw rows."
         )
     except Exception as exc:
         insert_ingest_run(ch, "etherscan_real", started_at, "failed", wallets_count, rows_inserted, tokens_priced, str(exc))
