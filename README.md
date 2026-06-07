@@ -199,6 +199,11 @@ Hourly цены токенов. Используется `ReplacingMergeTree(ver
 `mart.first_wallet_buys`  
 Первые покупки токена smart-кошельком. Используется `AggregatingMergeTree` с `minState` и `argMinState`.
 
+`mart.v_project_run_summary`  
+Одноэкранный паспорт текущего состояния проекта: последний real-ingest, строки
+после TTL, найденные цены, размеры mart-витрин и количество ребер/маршрутов в
+graph-слое. Удобно открывать первым запросом в DataGrip перед демонстрацией.
+
 `graph.wallet_token_edges`  
 Графовая витрина wallet-token. Используется `AggregatingMergeTree`.
 

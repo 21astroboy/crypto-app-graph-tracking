@@ -2,7 +2,17 @@
 -- Run this file in ClickHouse connections.
 
 -- ============================================================================
--- 00. Layer health: quick sanity check.
+-- 00. Project run summary: one-screen system passport.
+-- ============================================================================
+SELECT
+    metric,
+    value,
+    note
+FROM mart.v_project_run_summary
+ORDER BY metric;
+
+-- ============================================================================
+-- 00b. Layer health: quick sanity check.
 -- ============================================================================
 SELECT
     'raw.dex_transactions' AS object_name,
